@@ -688,7 +688,7 @@ Commander::Commander() :
 	_vehicle_status.system_id = 1;
 	_vehicle_status.component_id = 1;
 	_vehicle_status.system_type = 0;
-	_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_ROTARY_WING;
+	_vehicle_status.vehicle_type = vehicle_status_s::VEHICLE_TYPE_UNSPECIFIED;
 	_vehicle_status.nav_state = _user_mode_intention.get();
 	_vehicle_status.nav_state_user_intention = _user_mode_intention.get();
 	_vehicle_status.nav_state_timestamp = hrt_absolute_time();
@@ -2016,7 +2016,11 @@ void Commander::checkForMissionUpdate()
 
 			} else if (_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {
 				// Transition to loiter when the mission is cleared and/or finished, and we are still in mission mode.
-				_user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
+
+				// However, only do so if there's no pending mode change, so there isn't already a pending change (like RTL).
+				if (_user_mode_intention.get() == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) {
+					_user_mode_intention.change(vehicle_status_s::NAVIGATION_STATE_AUTO_LOITER);
+				}
 			}
 		}
 	}
@@ -2110,6 +2114,7 @@ void Commander::landDetectorUpdate()
 				events::send(events::ID("commander_takeoff_detected"), events::Log::Info, "Takeoff detected");
 				_vehicle_status.takeoff_time = hrt_absolute_time();
 				_have_taken_off_since_arming = true;
+				_home_position.setTakeoffTime(_vehicle_status.takeoff_time);
 			}
 
 			// automatically set or update home position
@@ -2255,9 +2260,7 @@ void Commander::handleAutoDisarm()
 		// Check for auto-disarm on landing or pre-flight
 		if (_param_com_disarm_land.get() > 0 || _param_com_disarm_prflt.get() > 0) {
 
-			const bool landed_amid_mission = (_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION)
-							 && !_mission_result_sub.get().finished;
-			const bool auto_disarm_land_enabled = _param_com_disarm_land.get() > 0 && !landed_amid_mission
+			const bool auto_disarm_land_enabled = _param_com_disarm_land.get() > 0 && !_mission_in_progress
 							      && !_config_overrides.disable_auto_disarm;
 
 			if (auto_disarm_land_enabled && _have_taken_off_since_arming) {
